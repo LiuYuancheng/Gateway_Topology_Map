@@ -1,4 +1,17 @@
-# Module which creates a database for testing
+#!/usr/bin/python
+#-----------------------------------------------------------------------------
+# Name:        databaseCreater.py
+#
+# Purpose:     This module is used to create or add the gateway node info in to 
+#              the database.
+#
+# Author:      Yuancheng Liu
+#
+# Created:     2021/11/23
+# Version:     v_0.2
+# Copyright:   n.a
+# License:     n.a
+#-----------------------------------------------------------------------------
 
 import json
 import random
@@ -7,8 +20,19 @@ import time
 
 from sqlite3 import Error
 
-sql_gatewayInfo_table = "CREATE TABLE IF NOT EXISTS gatewayInfo(id integer PRIMARY KEY, name text NOT NULL, ipAddr text NOT NULL, lat float NOT NULL, lng float NOT NULL, actF integer NOT NULL, rptTo integer NOT NULL, type text NOT NULL)"
-sql_gatewayState_table = "CREATE TABLE IF NOT EXISTS gatewayState(time float PRIMARY KEY, id text NOT NULL, updateInfo text NOT NULL)"
+# gateway information table.
+gwInfoTable = "CREATE TABLE IF NOT EXISTS gatewayInfo(id integer PRIMARY KEY,\
+                                                                name text NOT NULL,\
+                                                                ipAddr text NOT NULL,\
+                                                                lat float NOT NULL,\
+                                                                lng float NOT NULL,\
+                                                                actF integer NOT NULL,\
+                                                                rptTo integer NOT NULL,\
+                                                                type text NOT NULL)"
+# gateway current state table.
+gwStateTable = "CREATE TABLE IF NOT EXISTS gatewayState(time float PRIMARY KEY,\
+                                                                 id text NOT NULL,\
+                                                                 updateInfo text NOT NULL)"
 
 # Choose 2 connection to toggle
 DUMMY_TIME = 19.01 # Start the initial time as 19.01
@@ -84,9 +108,9 @@ def sql_connection():
 
 def sql_create_table():
     try:
-        cursorObj.execute(sql_gatewayInfo_table)
+        cursorObj.execute(gwInfoTable)
         connection.commit()
-        cursorObj.execute(sql_gatewayState_table)
+        cursorObj.execute(gwStateTable)
         connection.commit()
         for node in DUMMY_NODES:
             insert_statement = 'INSERT INTO gatewayInfo VALUES({}, "{}", "{}", {}, {}, {}, {}, "{}")'.format(node["no"], node["name"], node["ipAddr"], node["lat"], node["lng"], node["actF"], node["rptTo"], node["type"])
