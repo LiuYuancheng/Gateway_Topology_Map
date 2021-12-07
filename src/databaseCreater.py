@@ -7,18 +7,27 @@
 #
 # Author:      Yuancheng Liu
 #
-# Created:     2021/11/23
+# Created:     2021/12/07
 # Version:     v_0.2
 # Copyright:   n.a
 # License:     n.a
 #-----------------------------------------------------------------------------
 
+import os
 import json
+import time
 import random
 import sqlite3
-import time
-
 from sqlite3 import Error
+
+import ConfigLoader as cl 
+
+print("Current working directory is : %s" % os.getcwd())
+dirpath = os.path.dirname(__file__)
+print("Current source code location : %s" % dirpath)
+APP_NAME = 'databaseCreater'
+DB_PATH = os.path.join(dirpath , "node_database.db")
+NODES_FILE = os.path.join(dirpath, 'NodesRcd.txt')
 
 # gateway information table.
 gwInfoTable = "CREATE TABLE IF NOT EXISTS gatewayInfo(id integer PRIMARY KEY,\
@@ -39,95 +48,61 @@ DUMMY_TIME = 19.01 # Start the initial time as 19.01
 DUMMY_ID_LIST = [] # Updates the ID list
 DUMMY_JSON_INFO = {}
 
-DUMMY_NODES = [
-    {'no': 0,
-        'name':     "Control Hub",
-        'ipAddr':   "10.0.0.0",
-        'lat':      1.2988469,
-        'lng':      103.8360123,
-        'type':     'HB', 
-        'rptTo':    0,
-        'actF':     0},
 
-    {'no': 1,
-        'name':     "NUS",
-        'ipAddr':   "10.0.0.1",
-        'lat':      1.2964053,
-        'lng':      103.7690442,
-        'type':     'GW',
-        'rptTo':    0,
-        'actF':     0},
+#-----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------
+class databaseCreater(object):
 
-    {'no': 2,
-        'name':     "NTU",
-        'ipAddr':   "10.0.0.2",
-        'lat':      1.3461474,
-        'lng':      103.6793512,
-        'type':     'GW',
-        'rptTo':    0,
-        'actF':     0},
+    """ Download the webpage screen shot base on the input url."""
+    def __init__(self):
+        try:
+            # Create a connection with the database
+            self.connection = sqlite3.connect(DB_PATH)
+            print("Connection is established: Database is created in node_database.db")
+            self.cursorObj = connection.cursor() # Cursor can be used to call execute method for SQL queries
+            self.cfgLoader = cl.ConfigLoader(NODES_FILE, mode='r', filterChars=('#', '', '\n'))
+        except Error: print(Error)
 
-    {'no': 3,
-        'name':     "SUTD",
-        'ipAddr':   "10.0.0.3",
-        'lat':      1.3413,
-        'lng':      103.9638,
-        'type':     'GW', 
-        'rptTo':    0,
-        'actF':     0},
+#-----------------------------------------------------------------------------
+    def createTables(self):
+        """ Ceate the node info table. """
+        try:
+            self.cursorObj.execute(gwInfoTable)
+            self.connection.commit()
+            self.cursorObj.execute(gwStateTable)
+            self.connection.commit()
 
-    {'no': 4,
-        'name':     "SMU",
-        'ipAddr':   "10.0.0.4",
-        'lat':      1.296568,
-        'lng':      103.852119,
-        'type':     'GW',
-        'rptTo':    5,
-        'actF':     0},
+            for key, val in self.cfgLoader.getJson():
+                node = json.loads(val)
+                insert_statement = 'INSERT INTO gatewayInfo VALUES({}, "{}", "{}", {}, {}, {}, {}, "{}")'.\
+                    format(node["no"], node["name"], node["ipAddr"], node["lat"], node["lng"],\
+                         node["actF"], node["rptTo"], node["type"])
+                self.cursorObj.execute(insert_statement)
+                self.connection.commit()
+        except Error: print(Error)
 
-    {'no': 5,
-        'name':     "Control Hub",
-        'ipAddr':   "10.0.0.5",
-        'lat':      1.3525,
-        'lng':      103.9447,
-        'type':     'HB',
-        'rptTo':    5,
-        'actF':     0}
-]
+#-----------------------------------------------------------------------------
+    def clearStateTable(self):
+        self.cursorObj.execute('DELETE FROM gatewayState')
+        self.connection.commit()
 
-#====================================================================================================
+#-----------------------------------------------------------------------------
+    def updateStateTable(self, gatewayID, infoStr):
+        insert_statement = "INSERT INTO gatewayState(time, id, updateInfo) VALUES({}, '{}', '{}')".\
+                        format(time.time(), str(gatewayID), infoStr)
+        self.cursorObj.execute(insert_statement)
+        self.connection.commit()
+        time.sleep(3)
 
-def sql_connection():
-    try:
-        # Create a connection with the database
-        connection = sqlite3.connect('node_database.db')
-        print("Connection is established: Database is created in node_database.db")
-        return connection
-    except Error:
-        print(Error)
+#-----------------------------------------------------------------------------
+    def closeConnection(self):
+        print("Closing database connection")
+        self.connection.close()
 
-def sql_create_table():
-    try:
-        cursorObj.execute(gwInfoTable)
-        connection.commit()
-        cursorObj.execute(gwStateTable)
-        connection.commit()
-        for node in DUMMY_NODES:
-            insert_statement = 'INSERT INTO gatewayInfo VALUES({}, "{}", "{}", {}, {}, {}, {}, "{}")'.format(node["no"], node["name"], node["ipAddr"], node["lat"], node["lng"], node["actF"], node["rptTo"], node["type"])
-            cursorObj.execute(insert_statement)
-            connection.commit()
-    except Error: print(Error)
 
-def sql_clear_table():
-    cursorObj.execute('DELETE FROM gatewayState')
-    connection.commit()
-
-def update_id_list(num):
-    DUMMY_ID_LIST.clear()
-    DUMMY_ID_LIST.append(num)
-
-def update_json_info(id):
-    DUMMY_JSON_INFO.clear()
+#-----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------
+def getRandomStateInfo():
     id_information = {}
     actF_status = random.getrandbits(1)
     comTo_list = [i for i in range(5)] # Create a list with all the nodes
@@ -142,34 +117,19 @@ def update_json_info(id):
     id_information['throughputIn'] = round(random.uniform(1, 10), 2) if actF_status else 0
     id_information['throughputOut'] = round(random.uniform(1, 10), 2) if actF_status else 0
     id_information['actF'] = actF_status
+    return id, json.dumps({'id'+id:id_information})
 
-    DUMMY_JSON_INFO['id{}'.format(id)] = id_information
-    return json.dumps(DUMMY_JSON_INFO)
+def main():
+    print("Start Database Insert Simulation")
+    connector = databaseCreater()
+    connector.createTables()
+    connector.clearStateTable()
+    for _ in range(10):
+        id, info = getRandomStateInfo()
+        connector.updateStateTable(id, info)
+        time.sleep(3)
+    connector.closeConnection()
 
-def sql_close(connection):
-    print("Closing database connection")
-    connection.close()
-
-#====================================================================================================
-
-connection = sql_connection()
-cursorObj = connection.cursor() # Cursor can be used to call execute method for SQL queries
-sql_clear_table() # Clear the previous test case
-
-# sql_create_table() # When there is a need to recreate the table
-
-# Test case: To sleep for a period and update at every 3 seconds interval
-while True:
-    # Increase the time. Toggle the id and updateInfo
-    DUMMY_TIME += 0.03
-    rand_node = random.randrange(5)
-    update_id_list(rand_node)
-    json_info_string = update_json_info(rand_node)
-
-    # Create the insert statement to change the database
-    insert_statement = "INSERT INTO gatewayState(time, id, updateInfo) VALUES({}, '{}', '{}')".format(DUMMY_TIME, str(DUMMY_ID_LIST), json_info_string)
-    cursorObj.execute(insert_statement)
-    connection.commit()
-    time.sleep(3)
-
-sql_close(connection)
+#-----------------------------------------------------------------------------
+if __name__ == '__main__':
+    main()
