@@ -54,14 +54,14 @@ DUMMY_JSON_INFO = {}
 class databaseCreater(object):
 
     """ Download the webpage screen shot base on the input url."""
-    def __init__(self):
+    def __init__(self, dataBasePath):
         try:
             # Create a connection with the database
-            self.connection = sqlite3.connect(DB_PATH)
+            self.connection = sqlite3.connect(dataBasePath)
             print("Connection is established: Database is created in node_database.db")
-            self.cursorObj = connection.cursor() # Cursor can be used to call execute method for SQL queries
+            self.cursorObj = self.connection.cursor() # Cursor can be used to call execute method for SQL queries
             self.cfgLoader = cl.ConfigLoader(NODES_FILE, mode='r', filterChars=('#', '', '\n'))
-        except Error: print(Error)
+        except Error: print("__init__ error: %s" %str(Error))
 
 #-----------------------------------------------------------------------------
     def createTables(self):
@@ -72,14 +72,14 @@ class databaseCreater(object):
             self.cursorObj.execute(gwStateTable)
             self.connection.commit()
 
-            for key, val in self.cfgLoader.getJson():
+            for key, val in self.cfgLoader.getJson().items():
                 node = json.loads(val)
                 insert_statement = 'INSERT INTO gatewayInfo VALUES({}, "{}", "{}", {}, {}, {}, {}, "{}")'.\
                     format(node["no"], node["name"], node["ipAddr"], node["lat"], node["lng"],\
                          node["actF"], node["rptTo"], node["type"])
                 self.cursorObj.execute(insert_statement)
                 self.connection.commit()
-        except Error: print(Error)
+        except Error: print("createTables error: %s" %str(Error))
 
 #-----------------------------------------------------------------------------
     def clearStateTable(self):
@@ -99,17 +99,16 @@ class databaseCreater(object):
         print("Closing database connection")
         self.connection.close()
 
-
 #-----------------------------------------------------------------------------
 #-----------------------------------------------------------------------------
 def getRandomStateInfo():
+    gwID = random.randrange(5)
     id_information = {}
     actF_status = random.getrandbits(1)
     comTo_list = [i for i in range(5)] # Create a list with all the nodes
-    if id == 0 or id == 4:
-        comTo_list.remove(0)
-        comTo_list.remove(4)
-    else: comTo_list.remove(id)
+    if 0 in comTo_list: comTo_list.remove(0)
+    if 4 in comTo_list: comTo_list.remove(4)
+    if gwID in comTo_list: comTo_list.remove(gwID)
     comTo_list = random.sample(comTo_list, k=random.randrange(3))
 
     # Fill up the id information for that node
@@ -117,15 +116,18 @@ def getRandomStateInfo():
     id_information['throughputIn'] = round(random.uniform(1, 10), 2) if actF_status else 0
     id_information['throughputOut'] = round(random.uniform(1, 10), 2) if actF_status else 0
     id_information['actF'] = actF_status
-    return id, json.dumps({'id'+id:id_information})
+    return gwID, json.dumps(id_information)
 
 def main():
     print("Start Database Insert Simulation")
-    connector = databaseCreater()
-    connector.createTables()
+    tableCheck = os.path.exists(DB_PATH)
+    connector = databaseCreater(DB_PATH)
+    if not tableCheck: connector.createTables()
     connector.clearStateTable()
-    for _ in range(10):
+    #for _ in range(2):
+    while True:
         id, info = getRandomStateInfo()
+        print("Add info: %s" %str((id, info)))
         connector.updateStateTable(id, info)
         time.sleep(3)
     connector.closeConnection()
