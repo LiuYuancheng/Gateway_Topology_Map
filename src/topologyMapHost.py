@@ -8,6 +8,7 @@
 #              
 # Author:      Liu Yuancheng
 #
+# version:     v_0.2
 # Created:     2020/05/22
 # Copyright:   Singtel Cyber Security Research & Development Laboratory
 # License:     
@@ -18,7 +19,6 @@ import os
 import time
 import json
 import sqlite3
-import requests
 import threading
 from copy import deepcopy
 
@@ -35,8 +35,7 @@ import globalVal as gv
 TEST_MODE = True    # Test mode flag - True: test on local computer.
 LOG_FLAG = True     # log information display flag.
 HOST_IP = '127.0.0.1' if TEST_MODE else '0.0.0.0'
-
-
+HOST_PORT = 5000
 NODE_INFO_QUERY = "SELECT * FROM gatewayInfo"
 
 # Initialize the Flask application
@@ -55,7 +54,10 @@ def home():
         for idx, data in enumerate(gv.gMapFilter):
             gv.gMapSetting[idx] = 1 if request.form.get(data) != None else 0
         if gv.iDataMgr: gv.iDataMgr.setUpdateRate(gv.gPeriod)
-    return render_template("index_v02.html", gateway=gv.iDataMgr.getMarkersJSON(), period=gv.gPeriod, setting=gv.gMapSetting)
+    return render_template("index.html", 
+                            gateway=gv.iDataMgr.getMarkersJSON(), 
+                            period=gv.gPeriod, 
+                            setting=gv.gMapSetting)
 
 @gv.iSocketIO.on('connect', namespace='/test')
 def test_connect():
@@ -92,21 +94,24 @@ class DevNode(object):
 #----------------------------------------------------------------------------------------------------
 #----------------------------------------------------------------------------------------------------
 class DataMgr(threading.Thread):
-    """ Map data manager to generate node makers, com links ..."""
+    """ Map data manager thread running parallel with the main flask web host thread to load data 
+        from data base periodically and generate node makers, com links ..."""
     def __init__(self, parent, threadID, name):
         threading.Thread.__init__(self)
         self.parent = parent
-        self.hubID = [0, 5] # report hub ID NOTE: REMEMBER TO UPDATE CONTROL HUB LIST IF NECESSARY
+        self.hubID = []     # report hub ID list 
         self.nodeDict = {}  # all nodes dict.
-        self.periodic = 10  # update every 10 sec
+        self.periodic = 10  # default update every 10 sec
         self.linkDict = {'no':None, 'pts':None, 'active':None, 'keyExchange': None, 'throughput1':None, 'throughput2': None} 
         # example: {'no':1, 'pts':'0-1', 'active':True, 'keyExchange': True, 'throughput1':10.21, 'throughput2': 5.52}
         self.linkList = []  # link list, each element should be a linkDict.
-        # 'pts': <smaller_id>-<bigger_id>
-        
-        self.dbMgr = sqlite3.connect(gv.DB_PATH, check_same_thread=False)
-        self.nodeCursor = self.dbMgr.cursor() # Cursor can be used to call execute method for SQL queries
-
+        # Init the data base manager
+        try:
+            self.dbMgr = sqlite3.connect(gv.DB_PATH, check_same_thread=False)
+            self.nodeCursor = self.dbMgr.cursor() # Cursor can be used to call execute method for SQL queries
+        except sqlite3.Error as Error:
+            print("__init__ error: %s" %str(Error))
+            exit()
         self.terminate = False
         Log.info("DataMgr: Data manager thread inited.", printFlag=LOG_FLAG)
 
@@ -118,7 +123,7 @@ class DataMgr(threading.Thread):
             # build the gateway->hub report link:
             rptlink = deepcopy(self.linkDict)
             rptlink['no'] = len(self.linkList)
-            rptlink['pts'] = str(node.rptNodeID)+'-'+str(node.devID)
+            rptlink['pts'] = '-'.join((str(node.rptNodeID), str(node.devID)))
             rptlink['active'] = node.activeFlag
             if not self._checkLinkExist(rptlink['pts']): self.linkList.append(rptlink)
             # build the gateway<->gateway communication links:
@@ -135,15 +140,12 @@ class DataMgr(threading.Thread):
 
 #----------------------------------------------------------------------------------------------------
     def loadNodesData(self):
-        """ Load gateways and control hub google map markers data from the QSG-manager host."""
-        #data = requests.get('http://127.0.0.1:5000/nodes').json() # the data is a list of dict.
+        """ Load gateways and control hub google map markers data from the database."""
         # node data example : [5,Control Hub 2, 10.0.0.5, 1.3525, 103.9447, 0, 5, HB]
         self.nodeCursor.execute(NODE_INFO_QUERY)
         data = self.nodeCursor.fetchall()
-
         Log.info("DataMgr : all nodes information: %s", str(data), printFlag=LOG_FLAG)
-        gwIDlist = [i[0] for i in data]
-        Log.info(">>> %s" %str(gwIDlist))
+        gwIDlist = [i[0] for i in data] 
         for nodeData in data:
             currList = list(nodeData)
             nodeID = currList[0]
@@ -153,8 +155,13 @@ class DataMgr(threading.Thread):
                            devGPS=(currList[3], currList[4]))
             # Set the node parameters:
             node.ipAddr = currList[2]
-            node.comNodeIDs = [nodeID] if currList[7] == 'HB' else deepcopy(gwIDlist)
-            if currList[7] == 'GW': node.comNodeIDs.remove(nodeID)
+            node.comNodeIDs = []
+            if currList[7] == 'HB': 
+                self.hubID.append(nodeID)
+                node.comNodeIDs = [nodeID]  
+            elif currList[7] == 'GW':
+                node.comNodeIDs = deepcopy(gwIDlist)
+                node.comNodeIDs.remove(nodeID)
             node.rptNodeID = currList[6]
             node.activeFlag = currList[5]
             # Append the node it node dict.
@@ -171,7 +178,9 @@ class DataMgr(threading.Thread):
 
 #------------------------------------------------------------------------------------
     def getCommJSON(self):
-        """ Convert the communication link data list to Json str"""
+        """ Convert the communication link data list to Json string which will
+            be used by the Map front end javascript.
+        """
         result = {}
         for idx, data in enumerate(self.linkList):
             result[idx] = {
@@ -185,7 +194,9 @@ class DataMgr(threading.Thread):
 
 #-----------------------------------------------------------------------------------
     def getMarkersJSON(self):
-        """ Get the Nodes' markers JSON str."""
+        """ Get the Nodes' markers JSON string which will be used by the Map front
+            end javascript.
+        """
         result = {}
         # Filter the data to get name and coordinates
         for node in self.nodeDict.values():
@@ -200,8 +211,8 @@ class DataMgr(threading.Thread):
 
 #------------------------------------------------------------------------------------
     def getNodeActJSON(self):
-        """ Get the nNode activation situation json. This function is under editing, we 
-            need to move Zhaoming's <parse_activation> function logic in this function.
+        """ Get the nNode activation situation JSON string which will be used by the 
+            Map front end java script.
         """
         result = {}
         for nodePair in self.nodeDict.items():
@@ -211,20 +222,19 @@ class DataMgr(threading.Thread):
 
 #------------------------------------------------------------------------------------
     def updateLink(self):
-        """ Connect to the QSG-manager host to load the communication link data and 
-            use <SocketIO.emit()> to update the page.
+        """ Load the current node state and create the communication link data for 
+            <SocketIO.emit()> to update the map page's link detail.
         """
-        #data = requests.get('http://127.0.0.1:5000/comm').json()
         self.updateNodes()
         # Go through link list to update the link active flag base on Node activate states.
         for i in range(len(self.linkList)):
-            linkAct = True # Check whether the link is active or not
-            linkKey = False # Check whether the nodes have done key exchange
+            linkAct = True  # Check whether the link is active or not
+            self.linkList[i]['keyExchange'] = False # Check whether the nodes have done key exchange
             commList = self.linkList[i]['pts'].split('-') # Example: "1-2" = ["1", "2"]
-
+            # check if node 1 in node 2's keyExchange list and node 2 in node 1's keyExchange list.
             if int(commList[0]) in self.nodeDict[str(commList[1])].keyExchange and int(commList[1]) in self.nodeDict[str(commList[0])].keyExchange:
-                linkKey = True # Set key exchange to true if both node contains comTo
-            self.linkList[i]['keyExchange'] = linkKey
+                self.linkList[i]['keyExchange'] = True # Set key exchange to true if both node contains comTo
+            #self.linkList[i]['keyExchange'] = linkKey
 
             for idx in [int(i) for i in commList]:
                 linkAct = linkAct and self.nodeDict[str(idx)].activeFlag
@@ -242,8 +252,6 @@ class DataMgr(threading.Thread):
 #------------------------------------------------------------------------------------
     def updateNodes(self):
         """ Connet to the QSG-manager host to load the latest Node update information."""
-        #dataList = requests.get('http://127.0.0.1:5000/updates').json()
-        
         self.nodeCursor.execute("SELECT * FROM gatewayState WHERE time > {}".format(gv.gLatestTime))
         data = self.nodeCursor.fetchall()
         if len(data) > 0: gv.gLatestTime = data[-1][0]
@@ -275,8 +283,9 @@ class DataMgr(threading.Thread):
     def stop(self):
         """ Stop the thread."""
         self.terminate = True
-        pass
 
+
+#----------------------------------------------------------------------------------------------------
 #----------------------------------------------------------------------------------------------------
 def main():
     # Init the logger: 
@@ -288,16 +297,14 @@ def main():
     else:
         gTopDir = gWD   # did not find TOPDIR - use WD
     print('gTopDir:%s' % gTopDir)
-    Log.initLogger(gTopDir, 'Logs', 'flaskMap', 'flaskMap_02',
+    Log.initLogger(gTopDir, 'Logs', gv.APP_NAME, gv.APP_NAME,
             historyCnt=100, 
             fPutLogsUnderDate=True)
-    #try:
+
     gv.iDataMgr = DataMgr(None, 0, "server thread")
     gv.iDataMgr.loadNodesData()
     gv.iDataMgr.start()
-    gv.iSocketIO.run(app, host=HOST_IP, port=5001)
-    #except Exception:
-    #    Log.exception("Exception during init.", printFlag=LOG_FLAG)
+    gv.iSocketIO.run(app, host=HOST_IP, port=HOST_PORT)
 
 #----------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
