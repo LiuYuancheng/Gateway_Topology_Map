@@ -6,7 +6,7 @@
 #              devices communication situation. It is is a sub-project of the 
 #              'QSG-Manager dashboard' (Quantum Safe Gateway Manager) project. 
 #              
-# Author:      Zhao Ming, Liu Yuancheng
+# Author:      Liu Yuancheng
 #
 # Created:     2020/05/22
 # Copyright:   Singtel Cyber Security Research & Development Laboratory
