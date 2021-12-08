@@ -107,7 +107,7 @@ version: v0.2
 
 ###### Web Page Usage
 
-![](doc/img/UI view.png)
+![](doc/img/UI_view.png)
 
 
 
