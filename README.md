@@ -1,30 +1,32 @@
 
 
-# QSG-Topographic-Map
+# Gateway-Topographic-Map
+
+**Program Design Purpose**: We want to create  web host program with database to provide a topographic map panel website to show gateway devices' information (geo-location, communication details, detail current working state). 
+
+[TOC]
 
 ### Introduction
 
-This project will create a map panel to show gateway devices' communication situation topographic. It is is a sub-project of the ‘QSG-Manager dashboard’ (Quantum Safe Gateway Manager) project. In the main ‘Quantum Safe Gateway’ project, there will be several gateway devices communicating with each other. QSG-Manager will collect and monitor the internal status of our gateway devices and visualize all the data. In this assignment project, we will develop a topographic map panel to show the geo-location of all the gateway devices and the dataflow situation among them.
+This project will create a map panel to show gateway devices' communication situation topographic. It is is a sub-project of the ‘QSG-Manager dashboard’ (Quantum Safe Gateway Manager) project. In the main ‘Quantum Safe Gateway’ project, there will be several gateway devices communicating with each other. QSG-Manager will collect and monitor the internal status of our gateway devices and visualize all the data. 
 
 Assume we have two gateway devices (gateway A and B) deployed in NTU and NUS. When these two gateways are communicating with each other, on the topographic map panel we will mark these two gateway GPS position on the map and draw a link between the 2 markers:
 
 ![](doc/img/rm_preview.png)
 
-###### Gateway devices communication situation topographic page
+###### Gateway-Topographic-Map Main Page View
 
 Users are able to interact with the map by clicking on a marker for a popup showing the full details of gateway throughput and data rate between the 2 gateways.
 
-There is also a sidebar attached beside the map which allow users to decide various map settings. They can choose the data-uptake rate of the flask webserver calling GET request to the QSG-Manager through a dropdown menu. A filter function is also added to only display certain types of communication links (active, gateway, control hub).
+There is also a sidebar attached beside the map which allow users to decide various map settings. They can choose the data update rate of the flask webserver calling GET request through a dropdown menu. A filter function is also added to only display certain types of communication links (active, gateway, control hub).
 
-![](doc/img/rm_webView_v5.gif)
+![](doc/img/map_view.gif)
 
 ###### The main workflow for the program
 
-![](doc/img/work_flow_v3.jpg)
+![](doc/img/workFlow.png)
 
-###### The main work flow for flaskMap_v02.py
-
-![](doc/img/program_workflow_diagram.jpg)
+Version V_0.2
 
 ------
 
@@ -36,85 +38,109 @@ Python3.7.4, HTML+flask, socketIO+eventlet, SQLite3
 
 ###### Additional Lib/Software Need
 
-1. python Flask :
+1. **python Flask** : https://www.fullstackpython.com/flask.html
 
    ```
-   pip3 install Flask
+   Installation cmd: pip3 install Flask
    ```
 
-2. flask-googlemaps 0.4.0
+3. **flask-socketIO 4.5.1**: https://flask-socketio.readthedocs.io/en/latest/
 
    ```
-   pip3 install flask-googlemaps
+   Installation cmd: pip3 install flask-socketio
    ```
 
-3. flask-socketIO 4.5.1
+4. **SQL Browser**: https://sqlitebrowser.org/blog/version-3-12-2-released/
 
-   ```
-   pip3 install flask-socketio
-   ```
-
-4. python eventlet
+4. **python eventlet**: https://pypi.org/project/eventlet/
 
    ```
    pip3 install eventlet
    ```
 
-###### Program File List
+5. --
 
-| Program File      | Execution Env | Description                                                  |
-| ----------------- | ------------- | ------------------------------------------------------------ |
-| flaskMap_v02.py   | python3       | This module is used create flask webserver to send GET request with the QSG-Manager. |
-| qsg_v03.py        | python3       | This module is used retrieve data from the QSG-Manager Dashboard database.
-| globalVal.py      | python3       | This module stores all the global variables used in the flask webserver. |
-| index_v02.html    | HTML          | This file generates the UI of the Topological Maps using Google Maps. |
-| maps.js           | JavaScript    | This module stores the static JS functions to run the Google Map. |
-| map.css           | CSS           | This is the stylesheet for the Topological Map. |
+###### Hardware Needed : None
+
+###### Program Files List 
+
+version: v0.2
+
+| Program File             | Execution Env | Description                                                  |
+| ------------------------ | ------------- | ------------------------------------------------------------ |
+| src/topologyMapHost.py   | python3       | This module is used create flask webserver to send GET request with the QSG-Manager. |
+| src/globalVal.py         | python3       | This module stores all the global variables used in the flask webserver. |
+| src/node_database.db     |               | Database file.                                               |
+| src/databaseCreater.py   |               | Module to insert the simulation data into the data base.     |
+| src/Log.py               |               | Log generation mode.                                         |
+| src/NodesRcd.txt         |               | File to save simulation node information.                    |
+| src/ConfigLoader.py      | python3       | Module to load the node record file.                         |
+| src/templates/index.html | HTML          | This file generates the UI of the Topological Maps using Google Maps. |
+| src/static/js/maps.js    | JavaScript    | This module stores the static JS functions to run the Google Map. |
+| src/static/css/map.css   | CSS           | This is the stylesheet for the Topological Map.              |
+| src/static/img           |               | Image file used by the web page.                             |
+
+
 
 ------
 
 ### Program Usage
 
-Program execution cmd : 
+###### Program Execution Cmd 
 
-1. Start up the test case QSG-Manager to query the 'QSG-Manager Dashboard' database and retrieve the gateway communication information
+1. Start up the data insert simulation program to add new gateway 
    ```
-   python3 qsg_v03.py
+   python3 databaseCreater.py
    ```
 
+   Module API Usage: call `updateStateTable(self, gatewayID, infoStr)` to insert the new gateway state in to database.
+   
 2. Run the flask webserver to retrieve data from the QSG-Manager
+
    ```
-   python3 flaskMap_v02.py
+   python3 topologyMapHost.py
    ```
 
-3. Open web browser and enter URL: http://127.0.0.1:5001
+3. Open web browser and enter URL: http://127.0.0.1:5000
 
 
-------
 
-### Todo List
+###### Web Page Usage
 
-- [x] Design a web-page to show the gateway devices communication situation topographic on a map.
-- [x] Design a back-End web-server program to accept the gateway data from the QSG-Manage and update the webpage.
-- [x] Refactor the code to include database queries to retrieve and parse communication data.
-- [x] Create program development and environment setup documents.
-
-Timeline: 
-
-> Week 1: Improve the program design document and fixed what kind of API/Program language we will be used for the program development.
->
-> Week 2: Pick up the related API and programming knowledge; create some simple test program during leaning.
->
-> Week 3: Start programming and continues knowledge learning if needed.
->
-> Week 4-7: Program development and improvement.
->
-> Week 8-9: Program improvement and add new features.
->
-> Week 10-12: Write program design and setup document.
+![](doc/img/UI view.png)
 
 
 
 ------
 
-> Last edited by NgZhaoMing(ngzhaoming@gmail.com) at 20/07/2020
+### Problem and Solution
+
+###### Problem[0] **:** Unable to run flask server and socketIO concurrently due to threading issues
+
+**OS Platform** : Windows
+
+**Error Message**: greenlet.error: cannot switch to a different thread
+
+**Type**: Setup exception
+
+**Solution**:
+
+Upgrade Python 2.7 to Python 3.x to run Eventlet successfully. 
+ Alternatively, use gevent and gevent-socket library instead of eventlet:
+   Step 1: Uninstall eventlet library: pip3 uninstall eventlet
+   Step 2: Install gevent: pip3 install gevent
+   Step 3: Install gevent-socket: pip3 install gevent-socket
+
+
+
+------
+
+### Reference Link
+
+- N.A
+
+  
+
+------
+
+> Last edit by LiuYuancheng(liu_yuan_cheng@hotmail.com) at 08/12/2021
