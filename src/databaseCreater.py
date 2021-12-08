@@ -2,8 +2,8 @@
 #-----------------------------------------------------------------------------
 # Name:        databaseCreater.py
 #
-# Purpose:     This module is used to create or add the gateway node info in to 
-#              the database.
+# Purpose:     This module is used to create/add the gateway node and the current
+#              running state info in to the database.
 #
 # Author:      Yuancheng Liu
 #
@@ -19,17 +19,18 @@ import time
 import random
 import sqlite3
 from sqlite3 import Error
-
 import ConfigLoader as cl 
+import globalVal as gv
 
 print("Current working directory is : %s" % os.getcwd())
 dirpath = os.path.dirname(__file__)
 print("Current source code location : %s" % dirpath)
-APP_NAME = 'databaseCreater'
-DB_PATH = os.path.join(dirpath , "node_database.db")
-NODES_FILE = os.path.join(dirpath, 'NodesRcd.txt')
+GV_FLG = True  # Flag to identify whether use global value
 
-# gateway information table.
+DB_PATH = gv.DB_PATH if GV_FLG else os.path.join(dirpath , "node_database.db")
+NODES_FILE = gv.NODES_FILE if GV_FLG else  os.path.join(dirpath, 'NodesRcd.txt')
+
+# gateway information table query.
 gwInfoTable = "CREATE TABLE IF NOT EXISTS gatewayInfo(id integer PRIMARY KEY,\
                                                                 name text NOT NULL,\
                                                                 ipAddr text NOT NULL,\
@@ -38,16 +39,10 @@ gwInfoTable = "CREATE TABLE IF NOT EXISTS gatewayInfo(id integer PRIMARY KEY,\
                                                                 actF integer NOT NULL,\
                                                                 rptTo integer NOT NULL,\
                                                                 type text NOT NULL)"
-# gateway current state table.
+# gateway current state table query.
 gwStateTable = "CREATE TABLE IF NOT EXISTS gatewayState(time float PRIMARY KEY,\
                                                                  id text NOT NULL,\
                                                                  updateInfo text NOT NULL)"
-
-# Choose 2 connection to toggle
-DUMMY_TIME = 19.01 # Start the initial time as 19.01
-DUMMY_ID_LIST = [] # Updates the ID list
-DUMMY_JSON_INFO = {}
-
 
 #-----------------------------------------------------------------------------
 #-----------------------------------------------------------------------------
@@ -65,19 +60,18 @@ class databaseCreater(object):
 
 #-----------------------------------------------------------------------------
     def createTables(self):
-        """ Ceate the node info table. """
+        """ Ceate the node info and state table. """
         try:
             self.cursorObj.execute(gwInfoTable)
             self.connection.commit()
             self.cursorObj.execute(gwStateTable)
             self.connection.commit()
-
-            for key, val in self.cfgLoader.getJson().items():
+            for val in self.cfgLoader.getJson().values():
                 node = json.loads(val)
-                insert_statement = 'INSERT INTO gatewayInfo VALUES({}, "{}", "{}", {}, {}, {}, {}, "{}")'.\
+                insertQuery = 'INSERT INTO gatewayInfo VALUES({}, "{}", "{}", {}, {}, {}, {}, "{}")'.\
                     format(node["no"], node["name"], node["ipAddr"], node["lat"], node["lng"],\
                          node["actF"], node["rptTo"], node["type"])
-                self.cursorObj.execute(insert_statement)
+                self.cursorObj.execute(insertQuery)
                 self.connection.commit()
         except Error: print("createTables error: %s" %str(Error))
 
@@ -88,11 +82,16 @@ class databaseCreater(object):
 
 #-----------------------------------------------------------------------------
     def updateStateTable(self, gatewayID, infoStr):
-        insert_statement = "INSERT INTO gatewayState(time, id, updateInfo) VALUES({}, '{}', '{}')".\
-                        format(time.time(), str(gatewayID), infoStr)
-        self.cursorObj.execute(insert_statement)
+        """ insert gateway state info in to the state table
+        Args:
+            gatewayID ([int]): gateway ID
+            infoStr ([json/dict]): state dict. Example: {"comTo": [2], "throughputIn": 0, "throughputOut": 0, "actF": 0}
+        """
+        insertQuery = "INSERT INTO gatewayState(time, id, updateInfo) VALUES({}, '{}', '{}')".\
+                        format(time.time(), str(gatewayID), json.dumps(infoStr))
+        self.cursorObj.execute(insertQuery)
         self.connection.commit()
-        time.sleep(3)
+        time.sleep(1) # optional
 
 #-----------------------------------------------------------------------------
     def closeConnection(self):
@@ -102,21 +101,24 @@ class databaseCreater(object):
 #-----------------------------------------------------------------------------
 #-----------------------------------------------------------------------------
 def getRandomStateInfo():
+    """ Create a random state info json.
+    Returns:
+        id, state Dict.
+    """
     gwID = random.randrange(5)
     id_information = {}
-    actF_status = random.getrandbits(1)
+    actF_status = 0 if random.random() < 0.3 else 1
     comTo_list = [i for i in range(5)] # Create a list with all the nodes
-    if 0 in comTo_list: comTo_list.remove(0)
-    if 4 in comTo_list: comTo_list.remove(4)
+    comTo_list = random.sample(comTo_list, k=random.randrange(4))
+    #if 0 in comTo_list: comTo_list.remove(0)
+    #if 4 in comTo_list: comTo_list.remove(4)
     if gwID in comTo_list: comTo_list.remove(gwID)
-    comTo_list = random.sample(comTo_list, k=random.randrange(3))
-
     # Fill up the id information for that node
     id_information['comTo'] = comTo_list
     id_information['throughputIn'] = round(random.uniform(1, 10), 2) if actF_status else 0
     id_information['throughputOut'] = round(random.uniform(1, 10), 2) if actF_status else 0
     id_information['actF'] = actF_status
-    return gwID, json.dumps(id_information)
+    return gwID, id_information
 
 def main():
     print("Start Database Insert Simulation")
@@ -129,7 +131,7 @@ def main():
         id, info = getRandomStateInfo()
         print("Add info: %s" %str((id, info)))
         connector.updateStateTable(id, info)
-        time.sleep(3)
+        time.sleep(5)
     connector.closeConnection()
 
 #-----------------------------------------------------------------------------

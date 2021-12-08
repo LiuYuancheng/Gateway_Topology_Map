@@ -17,6 +17,7 @@
 import os
 import time
 import json
+import sqlite3
 import requests
 import threading
 from copy import deepcopy
@@ -34,6 +35,9 @@ import globalVal as gv
 TEST_MODE = True    # Test mode flag - True: test on local computer.
 LOG_FLAG = True     # log information display flag.
 HOST_IP = '127.0.0.1' if TEST_MODE else '0.0.0.0'
+
+
+NODE_INFO_QUERY = "SELECT * FROM gatewayInfo"
 
 # Initialize the Flask application
 app = Flask(__name__)
@@ -99,6 +103,10 @@ class DataMgr(threading.Thread):
         # example: {'no':1, 'pts':'0-1', 'active':True, 'keyExchange': True, 'throughput1':10.21, 'throughput2': 5.52}
         self.linkList = []  # link list, each element should be a linkDict.
         # 'pts': <smaller_id>-<bigger_id>
+        
+        self.dbMgr = sqlite3.connect(gv.DB_PATH, check_same_thread=False)
+        self.nodeCursor = self.dbMgr.cursor() # Cursor can be used to call execute method for SQL queries
+
         self.terminate = False
         Log.info("DataMgr: Data manager thread inited.", printFlag=LOG_FLAG)
 
@@ -128,19 +136,27 @@ class DataMgr(threading.Thread):
 #----------------------------------------------------------------------------------------------------
     def loadNodesData(self):
         """ Load gateways and control hub google map markers data from the QSG-manager host."""
-        data = requests.get('http://127.0.0.1:5000/nodes').json() # the data is a list of dict.
+        #data = requests.get('http://127.0.0.1:5000/nodes').json() # the data is a list of dict.
+        # node data example : [5,Control Hub 2, 10.0.0.5, 1.3525, 103.9447, 0, 5, HB]
+        self.nodeCursor.execute(NODE_INFO_QUERY)
+        data = self.nodeCursor.fetchall()
+
         Log.info("DataMgr : all nodes information: %s", str(data), printFlag=LOG_FLAG)
-        for nodeDict in data:
-            nodeID = nodeDict['no']
-            node = DevNode(devID=nodeDict['no'],
-                           devName=nodeDict['name'],
-                           devType=nodeDict['type'],
-                           devGPS=(nodeDict['lat'], nodeDict['lng']))
+        gwIDlist = [i[0] for i in data]
+        Log.info(">>> %s" %str(gwIDlist))
+        for nodeData in data:
+            currList = list(nodeData)
+            nodeID = currList[0]
+            node = DevNode(devID=nodeID,
+                           devName=currList[1],
+                           devType=currList[7],
+                           devGPS=(currList[3], currList[4]))
             # Set the node parameters:
-            node.ipAddr = nodeDict['ipAddr']
-            node.comNodeIDs = nodeDict['comTo']
-            node.rptNodeID = nodeDict['rptTo']
-            node.activeFlag = nodeDict['actF']
+            node.ipAddr = currList[2]
+            node.comNodeIDs = [nodeID] if currList[7] == 'HB' else deepcopy(gwIDlist)
+            if currList[7] == 'GW': node.comNodeIDs.remove(nodeID)
+            node.rptNodeID = currList[6]
+            node.activeFlag = currList[5]
             # Append the node it node dict.
             self.nodeDict[str(nodeID)] = node
         # Buid the communication link based on the node com-pair relationship.
@@ -218,6 +234,7 @@ class DataMgr(threading.Thread):
             self.linkList[i]['throughput1'] = self.nodeDict[str(commList[0])].inThrput if linkAct else 0
             self.linkList[i]['throughput2'] = self.nodeDict[str(commList[1])].inThrput if linkAct else 0
 
+        Log.info("link list: %s" %str(self.linkList))
         # Update the web page link
         gv.iSocketIO.emit('newrequest', {'comm': self.getCommJSON(),
                                          'activation_circles': self.getNodeActJSON()}, namespace='/test')
@@ -225,21 +242,19 @@ class DataMgr(threading.Thread):
 #------------------------------------------------------------------------------------
     def updateNodes(self):
         """ Connet to the QSG-manager host to load the latest Node update information."""
-        dataList = requests.get('http://127.0.0.1:5000/updates').json()
-        Log.info("DataMgr: Node update data : %s", str(dataList), printFlag=LOG_FLAG)
-        #for data in dataList:
-        #    for i in data['no']: # Loop through the list of changed nodes
-        #        self.nodeDict[str(i)].keyExchange = data['updateInfo']['id{}'.format(i)]['comTo']
-        #        self.nodeDict[str(i)].inThrput = data['updateInfo']['id{}'.format(i)]['throughputIn']
-        #        self.nodeDict[str(i)].outThrput = data['updateInfo']['id{}'.format(i)]['throughputOut']
-        #        self.nodeDict[str(i)].activeFlag = data['updateInfo']['id{}'.format(i)]['actF']
-
-        for data in dataList:
-            for key, val in data.items():
-                self.nodeDict[str(key)].keyExchange = val['comTo']
-                self.nodeDict[str(key)].inThrput = val['throughputIn']
-                self.nodeDict[str(key)].outThrput = val['throughputOut']
-                self.nodeDict[str(key)].activeFlag = val['actF']
+        #dataList = requests.get('http://127.0.0.1:5000/updates').json()
+        
+        self.nodeCursor.execute("SELECT * FROM gatewayState WHERE time > {}".format(gv.gLatestTime))
+        data = self.nodeCursor.fetchall()
+        if len(data) > 0: gv.gLatestTime = data[-1][0]
+        #changeList = [] # e.g. [{'no': [1], 'updateInfo': {'id1': {'comTo': [], 'throughputIn': 0, 'throughputOut': 0, 'actF': 0}}}]
+        Log.info("DataMgr: Node update data : %s", str(data), printFlag=LOG_FLAG)
+        for state in data:
+            key, val = str(state[1]), json.loads(state[2])
+            self.nodeDict[key].keyExchange = val['comTo']
+            self.nodeDict[key].inThrput = val['throughputIn']
+            self.nodeDict[key].outThrput = val['throughputOut']
+            self.nodeDict[key].activeFlag = val['actF']
 
 #-----------------------------------------------------------------------------------
     def run(self):
