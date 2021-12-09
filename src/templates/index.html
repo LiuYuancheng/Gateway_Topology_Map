@@ -1,0 +1,488 @@
+<?xml version="1.0" encording="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+
+<html>
+    <head>
+        <!--socketIO lib scripts-->
+        <script src="//code.jquery.com/jquery-3.3.1.min.js"></script>
+        <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.6/socket.io.min.js"></script>
+
+        <!--flask scripts-->
+        <script src="static/js/maps.js"></script>
+        <link rel="stylesheet" href="static/css/map.css">
+
+        <!--Bootstrap lib scripts-->
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+        <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" rel="stylesheet" />
+
+        <!--Google API scripts-->
+        <link rel="stylesheet" href="https://developers.google.com//maps/documentation/javascript/demos/demos.css">
+
+        <title> Gateway Topology Map </title>
+        
+        <!--Insert script here-->
+
+        <script>
+            // Retrieve the initial gateway markers
+            var data = JSON.parse('{{gateway|safe}}');
+            var dataLen = Object.keys(data).length;
+
+            // Set up the global variables
+            var map;
+            var socket;
+            // Store all markers
+            var markerArr = new Array(dataLen);
+            // Store all the names of the marker
+            var markerNameArr = new Array(dataLen);
+            // Store all the type of the marker control hub/gateway
+            var markerTypeArr = new Array(dataLen);
+            // Store all info windows
+            var infoWindowArr = new Array(dataLen);
+            // Sotre all throughput information
+            var throughputArr = createAdjMatrix(dataLen);
+            // Store gps position of gateway and control hub
+            var gpsPosArr = new Array(dataLen);
+            // Store all activation circle
+            var activationArr = new Array(dataLen);
+            // Stores all communication link
+            var linkObj = {};
+            // Stores whether the connection is active or not
+            var activeObj = {};
+            // Indicates whether the sidebar is visible
+            var isShown = true;
+            // Indicates whether the communication links are loaded to search list
+            var isCommLoaded = false;
+            // Keep tracks of any current highlighted polyline
+            var highlightedPoly = null;
+            // Keep tracks of the current link that should be highlighted
+            var currLinkHighlight = -1;
+
+            function initMap() {
+                map = new google.maps.Map(document.getElementById('map'), {
+                    center: data[0].pos,
+                    zoom: 11.5,
+                });
+                // For loop that process the list of markers and activation circle set them as false
+                for (i = 0; i < dataLen; i++) {
+                    addMarker(map, (data[i]).pos, (data[i]).number, (data[i]).name);
+                    addGwCircle(map, (data[i]).pos, (data[i]).number, false);
+                    gpsPosArr[i] = (data[i]).pos;
+                }
+                addControlUi(map);
+            }
+
+            function addControlUi(map) {
+                var controlUI = document.createElement('button');
+                controlUI.setAttribute('id', "menu-toggle");
+                controlUI.title = 'Toggle Map Settings';
+
+                // Setup the click event listeners
+                controlUI.addEventListener('click', () => {
+                    if (isShown) {
+                        document.getElementById("sidebar").style.display = "none";  
+                    } else {
+                        document.getElementById("sidebar").style.display = "table-cell";  
+                    }
+                    isShown = !isShown;
+                });
+
+                controlUI.index = 1;
+                map.controls[google.maps.ControlPosition.TOP_LEFT].push(controlUI);
+            }
+
+            function addMarker(map, GpsPos, number, name) {
+                // Get the marker config dict base on the gateway active flag
+
+                var icon = name == "Control Hub" ? 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png' :
+                    'http://maps.google.com/mapfiles/ms/icons/blue-dot.png';
+
+                var marker = new google.maps.Marker({
+                    icon: icon,
+                    position: GpsPos,
+                    map: map,
+                    title: name
+                });
+
+                var content = createInfoDetail(name, null);
+
+                var infowindow = new google.maps.InfoWindow({
+                    content: content
+                });
+
+                marker.addListener('click', () => {
+                    infowindow.open(map, marker);
+                });
+
+                name == "Control Hub" ? markerTypeArr[number] = 1 : markerTypeArr[number] = 0;
+                markerArr[number] = marker;
+                markerNameArr[number] = name;
+                infoWindowArr[number] = infowindow;
+            }
+
+            function updateMarker(map, name, number, throughput) {
+                // Get the marker -> Delete the info window -> Create new info window
+                var currMark = markerArr[number];
+                var currInfo = infoWindowArr[number];
+                
+                // Check whether the previous infoWindow is shown before deleting that info window
+                var isInfoShown = isInfoWindowOpen(currInfo);
+
+                google.maps.event.clearListeners(currMark, 'click');
+
+                // Code that deletes the original info window
+                currInfo.close();
+                currInfo = null;
+                
+                var content = createInfoDetail(name, markerNameArr, throughput);
+                var newWindow = new google.maps.InfoWindow({
+                    content: content
+                });
+
+                if (isInfoShown) {
+                    newWindow.open(map, currMark);
+                }
+            
+                currMark.addListener('click', () => {
+                    newWindow.open(map, currMark);
+                });
+
+                markerArr[number] = currMark;
+                infoWindowArr[number] = newWindow;
+            }
+
+            function isInfoWindowOpen(infoWindow){
+                var map = infoWindow.getMap();
+                return (map !== null && typeof map !== "undefined");
+            }
+
+            function addGwCircle(map, GpsPos, number, active) {
+                // Get the circle config dict base on the gateway active flag
+                var radius = markerTypeArr[number] ? 300 : 150;
+                var color = active ? '#0000FF' : '#1E1E1E';
+
+                var circle = new google.maps.Circle({ // Draw circle on may (user_location as center)
+                    map: map,
+                    strokeColor: color,
+                    strokeOpacity: 0.5,
+                    strokeWeight: 5,
+                    // line(stroke) style
+                    fillColor: '#FFFFFF',
+                    fillOpacity: 0.2,
+                    // fill style
+                    center: { // Set circle to user_location
+                        'lat': GpsPos.lat,
+                        'lng': GpsPos.lng
+                    },
+                    radius: radius
+                });
+
+                activationArr[number] = circle;
+                return circle;
+            }
+
+            function updateGwCircle(map, number, active) {
+                var currCircle = activationArr[number];
+
+                // Code that deletes the original circle
+                currCircle.setMap(null);
+
+                var newCircle = addGwCircle(map, gpsPosArr[number], number, active);
+                activationArr[number] = newCircle;
+            }
+
+            function addLink(map, pt1, pt2, aveThr, isReport, active, keyExchange) {
+                // isReport flag checks whether it is a communication with Control Hub
+                // Get the communication link style base on the communication type flag
+                // Animation for active communication link
+
+                var color = isReport ? '#E33023' : '#0AB0DE';
+                var pathIcon =  isReport ? google.maps.SymbolPath.FORWARD_CLOSED_ARROW : google.maps.SymbolPath.CIRCLE;
+                var iconColor = isReport ? 'green' : '#00008B';
+                var strokeWeight = active ? 3 : 1;
+                console.log(aveThr);
+                var intThroughput = parseInt(aveThr);
+                console.log(intThroughput);
+                var lineSymbol = active ? {
+                    path: pathIcon,
+                    scale: intThroughput,
+                    strokeColor: iconColor} : null;
+                if (!Boolean(active)) color = '#D3D3D3'; // change to gray color if link not active.
+                if (color == '#D3D3D3' && keyExchange) color = 'black'; // change to black if there is key exchange
+                var polyline = new google.maps.Polyline({
+                    strokeColor: color, 
+                    strokeOpacity: 1.0,  
+                    strokeWeight: strokeWeight, 
+                    path: [{'lat': pt1.lat, 'lng': pt1.lng},
+                            {'lat': pt2.lat, 'lng': pt2.lng}],
+                    icons: [{icon: lineSymbol, 
+                            offset: '100%'}],
+                    map: map
+                });
+
+                animateSymbol(polyline, isReport);
+
+                return polyline;
+            }
+
+            // Connection parameter takes in a string pt1 + pt2 appended in ascending order
+            function updateLink(map, connection, active, keyExchange, throughput1, throughput2, setting) {
+                var shouldUpdate = true;
+                var currLink = linkObj[connection];
+
+                if (currLink != undefined) { currLink.setMap(null); } // Remove current link if present
+                activeObj[connection] = active;
+
+                // user '-' to split 2 points
+                var MarkerArr = connection.split('-')
+                var firstMarker = parseInt(MarkerArr[0], 10);
+                var secondMarker = parseInt(MarkerArr[1], 10);
+                
+                var isReport = markerTypeArr[firstMarker] || markerTypeArr[secondMarker] ? true : false;
+
+                throughputArr[firstMarker][secondMarker] = throughput2;
+                throughputArr[secondMarker][firstMarker] = throughput1;
+                aveThr = (throughput1 + throughput2) / 2
+
+                if (!active && !setting[0]) { shouldUpdate = false; }
+                if (!isReport && !setting[1]) { shouldUpdate = false; }
+                if (isReport && !setting[2]) { shouldUpdate = false; }
+
+                if (shouldUpdate) {
+                    var newLink = addLink(map, gpsPosArr[secondMarker], gpsPosArr[firstMarker], aveThr, isReport, active, keyExchange);
+                    linkObj[connection] = newLink;
+                }
+            }
+
+            function setSearchList(names, comms) {
+                var searchList = document.getElementById("search-list");
+
+                var currComm = comms.split("-");
+                var first = parseInt(currComm[0]);
+                var second = parseInt(currComm[1]);
+
+                // Creating the button element
+                var newButton = document.createElement("button");
+                newButton.setAttribute("class", "polyline");
+                newButton.innerHTML = names[first] + " ⭤ " + names[second];
+                newButton.value = comms;
+
+                searchList.appendChild(newButton);
+            }
+
+            function setButtonActivity() {
+                var btns = document.getElementsByClassName("polyline");
+                for (var i = 0; i < btns.length; i++) {
+                    btns[i].addEventListener("click", function() {
+                        var current = document.getElementsByClassName("active");
+                        console.log(current);
+                        if (current.length > 0) {
+                            current[1].className = current[1].className.replace(" active", "");
+                        }
+                        this.className += " active";
+
+                        currLinkHighlight = this.value;
+                        highlightedPoly = setHighlightPolyline(currLinkHighlight);
+                    });
+                }
+            }
+
+            function setHighlightPolyline(comm) {
+                if (highlightedPoly != null) { highlightedPoly.setMap(null); }
+
+                var toShowInactive = document.getElementById("show-inactive").checked;
+
+                if (linkObj.hasOwnProperty(comm) && (toShowInactive || activeObj[comm])) {
+                    var currComm = comm.split('-');
+                    newPoly = new google.maps.Polyline({
+                        strokeColor: "yellow", 
+                        strokeOpacity: 1.0,  
+                        strokeWeight: 7, 
+                        path: [gpsPosArr[parseInt(currComm[0])],
+                                gpsPosArr[parseInt(currComm[1])]],
+                        map: map,
+                        zIndex: -1
+                    });
+
+                    return newPoly;
+                }
+            }
+
+            function openSettings(evt, settings) {
+                var i, tabcontent, tablinks;
+                tabcontent = document.getElementsByClassName("tabcontent");
+                for (i = 0; i < tabcontent.length; i++) {
+                    tabcontent[i].style.display = "none";
+                }
+
+                tablinks = document.getElementsByClassName("tablinks");
+                for (i = 0; i < tablinks.length; i++) {
+                    tablinks[i].className = tablinks[i].className.replace(" active", "");
+                }
+
+                document.getElementById(settings).style.display = "block";
+                evt.currentTarget.className += " active";
+            }
+
+            // Socket JavaScript program, process JSON string data
+            $(document).ready(() => {
+                //connect to the socket server.
+                socket = io.connect('http://' + document.domain + ':' + location.port + '/test');
+                document.getElementById("rate-uptake").value = '{{period}}';
+
+                var setting = JSON.parse('{{setting|safe}}');
+                document.getElementById("show-inactive").checked = setting[0];
+                document.getElementById("show-gateway").checked = setting[1];
+                document.getElementById("show-control").checked = setting[2];
+
+                //receive details from server
+                socket.on('newrequest', function(msg) {
+                    var links = JSON.parse(msg.comm);
+                    var activation = JSON.parse(msg.activation_circles);
+
+                    for (var i = 0; i < Object.keys(activation).length; i++) {
+                        updateGwCircle(map, i, (activation[i]));
+                    }
+
+                    for (var i = 0; i < Object.keys(links).length; i++) {
+                        updateLink(map, (links[i])['connection'], (links[i])['active'], (links[i])['keyExchange'], (links[i])['throughput1'], (links[i])['throughput2'], setting);
+                    }
+
+                    for (var i = 0; i < dataLen; i++) {
+                        updateMarker(map, markerNameArr[i], i, throughputArr[i]);
+                    }
+
+                    if (!isCommLoaded) {
+                        for (var i = 0; i < Object.keys(links).length; i++) { setSearchList(markerNameArr, (links[i])['connection']); }
+                        setButtonActivity();
+                        isCommLoaded = !isCommLoaded;
+                    }
+
+                    if (!setting[0]) { highlightedPoly = setHighlightPolyline(currLinkHighlight); }
+                });
+            });
+        </script>
+
+        <!--End script here-->
+
+        <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBoHBPqxFw40DFvCbXrj1IWNcvkzb6WkkI&callback=initMap"
+        async defer></script>
+    </head>
+
+    <body style="background-image: url('../static/images/bgimg3.png');">
+        <h1 style="color:white"> <img src="../static/images/logoSingtel.png" usemap="#linkmap" alt="trustwave log" width="200"
+            style="float: left; padding: 10px;"> Quantum Safe Gateway Intern Assignment：</h1>
+        <h3 style="color:white">Create a map panel to show gateway devices communication situation topographic.</h3>>
+
+        <table>
+            <tr>
+                <td id="sidebar">
+
+                    <div class="tab">
+                        <button class="tablinks active" onclick="openSettings(event, 'Settings')">Settings</button>
+                        <button class="tablinks" onclick="openSettings(event, 'Search')">Search</button>
+                        <button class="tablinks" onclick="openSettings(event, 'Legend')">Legend</button>
+                    </div>
+                      
+                    <div id="Settings" class="tabcontent">
+                        <form id="map-settings" action="." method="POST">
+                            <br>
+                            <label for="rate-uptake">Choose an uptake rate:</label>
+                            <select name="rate-uptake" id="rate-uptake"> 
+                                <option value=60>60s</option>
+                                <option value=30>30s</option>
+                                <option value=20>20s</option>
+                                <option value=10 selected="selected">10s</option>
+                                <option value=5>5s</option>
+                                <option value=3>3s</option>
+                            </select>
+                            <br>
+                            <br>
+                            <h4>Filter settings:</h4>
+                            <input checked type="checkbox" name="show-inactive" id="show-inactive">
+                            <label for="show-inactive"> Show inactive links</label><br>
+                            <input checked type="checkbox" name="show-gateway" id="show-gateway">
+                            <label for="show-gateway"> Show gateway links</label><br>
+                            <input checked type="checkbox" name="show-control" id="show-control">
+                            <label for="show-control"> Show control hub links</label><br>
+
+                            <br>
+                            <input type="submit" value="Submit">
+                        </form>
+                    </div>
+                      
+                    <div id="Search" class="tabcontent">
+                        <div class="vertical-menu" id="search-list">
+                            <button class="polyline active" value="-1">None</button>
+                        </div>
+                    </div>
+
+                    <div id="Legend" class="tabcontent">
+                        <table id="legend-table">
+                            <tr>
+                              <th>Icon</th>
+                              <th>Name</th>
+                              <th>Description</th>
+                            </tr>
+                            
+                            <tr>
+                              <td><img src="../static/images/yellow_marker.png"></td>
+                              <td>Yellow Marker</td>
+                              <td>Control Hub Node</td>
+                            </tr>
+                            
+                            <tr>
+                              <td><img src="../static/images/blue_marker.png"></td>
+                              <td>Blue Marker</td>
+                              <td>Gateway Node</td>
+                            </tr>
+                            
+                            <tr>
+                              <td><img src="../static/images/red_comm.png"></td>
+                              <td>Red Link</td>
+                              <td>Active Control Hub to Gateway comm</td>
+                            </tr>
+                            
+                            <tr>
+                              <td><img src="../static/images/blue_comm.png"></td>
+                              <td>Blue Link</td>
+                              <td>Active Gateway to Gateway comm</td>
+                            </tr>
+                            
+                            <tr>
+                              <td><img src="../static/images/black_comm.png"></td>
+                              <td>Black Link</td>
+                              <td>Inactive Gateway to Gateway comm with key exchange</td>
+                            </tr>
+                            
+                            <tr>
+                              <td><img src="../static/images/grey_comm.png"></td>
+                              <td>Grey Link</td>
+                              <td>Inactive Gateway to Gateway comm without key exchange</td>
+                            </tr>
+                            
+                            <tr>
+                              <td><img src="../static/images/arrow_animated.png"></td>
+                              <td>Green Arrow Pointer</td>
+                              <td>Animated symbol for Gateway to Control Hub comm</td>
+                            </tr>
+                            
+                            <tr>
+                              <td><img src="../static/images/circle_animated.png"></td>
+                              <td>Dark Blue Circle</td>
+                              <td>Animated symbol for Gateway to Gateway comm</td>
+                            </tr>
+                          </table>
+                    </div>
+
+                </td>
+                <td id="map_cell">
+                    <div id="map"></div>
+                </td>
+            </tr>
+        </table>
+
+        <a href="mailto:liu_yuan_cheng@hotmail.com?subject=Report A problem&body=found a bug"> Report a problem </a>
+    </body>
+        
+</html>

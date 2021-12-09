@@ -24,7 +24,7 @@ There is also a sidebar attached beside the map which allow users to decide vari
 
 ###### The main workflow for the program
 
-![](doc/img/workFlow.png)
+![](doc/img/workflow.png)
 
 Version V_0.2
 
@@ -125,11 +125,11 @@ version: v0.2
 
 **Solution**:
 
-Upgrade Python 2.7 to Python 3.x to run Eventlet successfully. 
- Alternatively, use gevent and gevent-socket library instead of eventlet:
-   Step 1: Uninstall eventlet library: pip3 uninstall eventlet
-   Step 2: Install gevent: pip3 install gevent
-   Step 3: Install gevent-socket: pip3 install gevent-socket
+Upgrade Python 2.7 to Python 3.x to run Eventlet successfully. Alternatively, use gevent and gevent-socket library instead of eventlet:
+
+- Step 1: Uninstall eventlet library: pip3 uninstall eventlet
+- Step 2: Install gevent: pip3 install gevent
+- Step 3: Install gevent-socket: pip3 install gevent-socket
 
 
 
