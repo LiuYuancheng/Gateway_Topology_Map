@@ -2,6 +2,10 @@
 
 # Gateway-Topographic-Map
 
+```
+ All copyrights reserved by NUS-Singtel Cyber Security R&D Lab (Jun 2016 to Jun 2021)
+```
+
 **Program Design Purpose**: We want to create  web host program with database to provide a topographic map panel website to show gateway devices' information (geo-location, communication details, detail current working state). 
 
 [TOC]
