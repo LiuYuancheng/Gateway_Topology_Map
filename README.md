@@ -105,6 +105,8 @@ version: v0.2
    python3 topologyMapHost.py
    ```
 
+   **After running step2, wait 30 sec make sure the database thread fully started then do step 3.**
+
 3. Open web browser and enter URL: http://127.0.0.1:5000
 
 
