@@ -24,7 +24,7 @@ Users are able to interact with the map by clicking on a marker for a popup show
 
 There is also a sidebar attached beside the map which allow users to decide various map settings. They can choose the data update rate of the flask webserver calling GET request through a dropdown menu. A filter function is also added to only display certain types of communication links (active, gateway, control hub).
 
-![](doc/img/map_view.gif)
+![](doc/img/map.gif)
 
 ###### The main workflow for the program
 
