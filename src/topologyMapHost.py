@@ -135,6 +135,7 @@ class DataMgr(threading.Thread):
                 comlink['pts'] = '-'.join([str(i) for i in pair])
                 comlink['active'] = node.activeFlag
                 if not self._checkLinkExist(comlink['pts']): self.linkList.append(comlink)
+        
         # print all the build link
         _ = [Log.info("DataMgr: created link: %s", str(link), printFlag=LOG_FLAG) for link in self.linkList]
 
